@@ -1,0 +1,286 @@
+diff -urbd ghost/bnet.cpp ghost_mycode/bnet.cpp
+--- ghost/bnet.cpp	2009-11-01 14:27:35.000000000 -0700
++++ ghost_mycode/bnet.cpp	2009-11-09 17:48:44.000000000 -0700
+@@ -1198,8 +1198,11 @@
+ 
+ 		if( Event == CBNETProtocol :: EID_WHISPER && m_GHost->m_CurrentGame )
+ 		{
+-			if( Message == "s" || Message == "sc" || Message == "spoof" || Message == "check" || Message == "spoofcheck" )
+-				m_GHost->m_CurrentGame->AddToSpoofed( m_Server, User, true );
++//			if( Message == "s" || Message == "sc" || Message == "spoof" || Message == "check" || Message == "spoofcheck" )
++//				m_GHost->m_CurrentGame->AddToSpoofed( m_Server, User, true );
++			if( !Message.empty( ) && ( IsAdmin( User ) || IsRootAdmin( User ) ) )
++				// any admin/rootadmin whisper us means spoofchecked...
++				m_GHost->m_CurrentGame->AddToSpoofed( m_Server, User, false );
+ 			else if( Message.find( m_GHost->m_CurrentGame->GetGameName( ) ) != string :: npos )
+ 			{
+ 				// look for messages like "entered a Warcraft III The Frozen Throne game called XYZ"
+@@ -2070,6 +2073,8 @@
+ 
+ 					if( GameNumber < m_GHost->m_Games.size( ) )
+ 					{
++						// Only allow RootAdmin/Owner to !end game						
++						if ( IsRootAdmin( User ) || m_GHost->m_Games[GameNumber]->IsOwner( User ) ) {
+ 						QueueChatCommand( m_GHost->m_Language->EndingGame( m_GHost->m_Games[GameNumber]->GetDescription( ) ), User, Whisper );
+ 						CONSOLE_Print( "[GAME: " + m_GHost->m_Games[GameNumber]->GetGameName( ) + "] is over (admin ended game)" );
+ 						m_GHost->m_Games[GameNumber]->SendAllChat("Game will end in 5 seconds");
+@@ -2077,6 +2082,9 @@
+ 						m_GHost->m_Games[GameNumber]->m_GameEndCountDownCounter = 5;
+ 						m_GHost->m_Games[GameNumber]->m_GameEndLastCountDownTicks = GetTicks();
+ //						m_GHost->m_Games[GameNumber]->StopPlayers( "was disconnected (admin ended game)" );
++						} else {
++							QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++						}
+ 					}
+ 					else
+ 						QueueChatCommand( m_GHost->m_Language->GameNumberDoesntExist( Payload ), User, Whisper );
+@@ -3301,10 +3309,11 @@
+ 						// if the player sent "!start force" skip the checks and start the countdown
+ 						// otherwise check that the game is ready to start
+ 
+-						if( Payload == "force" )
++						// always skip checks, they are stupid :)
++//						if( Payload == "force" )
+ 							m_GHost->m_CurrentGame->StartCountDown( true );
+-						else
+-							m_GHost->m_CurrentGame->StartCountDown( false );
++//						else
++//							m_GHost->m_CurrentGame->StartCountDown( false );
+ 					}
+ 					else
+ 						QueueChatCommand( m_GHost->m_Language->TheGameIsLockedBNET( ), User, Whisper );
+@@ -3862,8 +3871,13 @@
+ 							QueueChatCommand( m_GHost->m_Language->UnableToUnhostGameCountdownStarted( m_GHost->m_CurrentGame->GetDescription( ) ), User, Whisper );
+ 						else
+ 						{
++							// only rootadmin/owner can !unhost a game
++							if ( IsRootAdmin( User ) || m_GHost->m_CurrentGame->IsOwner( User ) ) {
+ 							QueueChatCommand( m_GHost->m_Language->UnhostingGame( m_GHost->m_CurrentGame->GetDescription( ) ), User, Whisper );
+ 							m_GHost->m_CurrentGame->SetExiting( true );
++							} else {
++								QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++							}
+ 						}
+ 					}
+ 					else
+diff -urbd ghost/game_base.cpp ghost_mycode/game_base.cpp
+--- ghost/game_base.cpp	2009-11-01 14:27:35.000000000 -0700
++++ ghost_mycode/game_base.cpp	2009-11-13 00:07:55.000000000 -0700
+@@ -2086,6 +2086,8 @@
+ 					}
+ 				}
+ 			}
++
++/*	THIS IS NOOB CODE!
+ 			// let banned players "join" the game with an arbitrary PID then immediately close the connection
+ 			// this causes them to be kicked back to the chat channel on battle.net
+ 
+@@ -2093,12 +2095,12 @@
+ 			potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_SLOTINFOJOIN( 1, potential->GetSocket( )->GetPort( ), potential->GetExternalIP( ), Slots, 0, m_Map->GetMapGameType( ) == GAMETYPE_CUSTOM ? 3 : 0, m_Map->GetMapNumPlayers( ) ) );
+ 			potential->SetDeleteMe( true );
+ 			return;
++*/
+ 
+-/*
+ 			potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
+ 			potential->SetDeleteMe( true );
+ 			return;
+-*/
++
+ 		}
+ 	}
+ 
+@@ -2128,6 +2130,7 @@
+ 						}
+ 						if (m_GHost->m_IPBanning==1)
+ 						{
++/*	THIS IS NOOB CODE!
+ 							// let banned players "join" the game with an arbitrary PID then immediately close the connection
+ 							// this causes them to be kicked back to the chat channel on battle.net
+ 			
+@@ -2135,12 +2138,13 @@
+ 							potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_SLOTINFOJOIN( 1, potential->GetSocket( )->GetPort( ), potential->GetExternalIP( ), Slots, 0, m_Map->GetMapGameType( ) == GAMETYPE_CUSTOM ? 3 : 0, m_Map->GetMapNumPlayers( ) ) );
+ 							potential->SetDeleteMe( true );
+ 							return;
++*/
++
+ 
+-/*
+ 							potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
+ 							potential->SetDeleteMe( true );
+ 							return;
+-*/
++
+ 						}
+ 						string sBan = joinPlayer->GetName()+"("+potential->GetExternalIPString()+") is IP banned";
+ 						string sBReason = sBan + ", "+sReason;
+@@ -2168,6 +2172,7 @@
+ 				// kick if not garena, admin, rootadmin, reserver
+ 				if (EIP!="127.0.0.1" && EIP!=m_GHost->m_ExternalIP && !IsOwner( joinPlayer->GetName( ) ) && !AdminCheck && !RootAdminCheck && !IsReserved (joinPlayer->GetName()))
+ 				{
++/*	THIS IS NOOB CODE!
+ 					// let banned players "join" the game with an arbitrary PID then immediately close the connection
+ 					// this causes them to be kicked back to the chat channel on battle.net
+ 	
+@@ -2175,11 +2180,12 @@
+ 					potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_SLOTINFOJOIN( 1, potential->GetSocket( )->GetPort( ), potential->GetExternalIP( ), Slots, 0, m_Map->GetMapGameType( ) == GAMETYPE_CUSTOM ? 3 : 0, m_Map->GetMapNumPlayers( ) ) );
+ 					potential->SetDeleteMe( true );
+ 					return;
+-/*
++*/
++
+ 					potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
+ 					potential->SetDeleteMe( true );
+ 					return;
+-*/
++
+ 				}
+ 			}
+ 			potential->GetExternalIPString();
+@@ -2809,21 +2815,27 @@
+ 	// if spoof checks are required and we won't automatically spoof check this player then tell them how to spoof check
+ 	// e.g. if automatic spoof checks are disabled, or if automatic spoof checks are done on admins only and this player isn't an admin
+ 
+-	if( m_GHost->m_RequireSpoofChecks && !Player->GetWhoisShouldBeSent( ) )
+-	{
+-		for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+-		{
+-			// note: the following (commented out) line of code will crash because calling GetUniqueName( ) twice will result in two different return values
+-			// and unfortunately iterators are not valid if compared against different containers
+-			// this comment shall serve as warning to not make this mistake again since it has now been made twice before in GHost++
+-			// string( (*i)->GetUniqueName( ).begin( ), (*i)->GetUniqueName( ).end( ) )
+-
+-			BYTEARRAY UniqueName = (*i)->GetUniqueName( );
+-
+-			if( (*i)->GetServer( ) == JoinedRealm )
+-				SendChat( Player, m_GHost->m_Language->SpoofCheckByWhispering( string( UniqueName.begin( ), UniqueName.end( ) )  ) );
+-		}
++//	if( m_GHost->m_RequireSpoofChecks && !Player->GetWhoisShouldBeSent( ) )
++//	{
++//		for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
++//		{
++//			// note: the following (commented out) line of code will crash because calling GetUniqueName( ) twice will result in two different return values
++//			// and unfortunately iterators are not valid if compared against different containers
++//			// this comment shall serve as warning to not make this mistake again since it has now been made twice before in GHost++
++//			// string( (*i)->GetUniqueName( ).begin( ), (*i)->GetUniqueName( ).end( ) )
++//
++//			BYTEARRAY UniqueName = (*i)->GetUniqueName( );
++//
++//			if( (*i)->GetServer( ) == JoinedRealm )
++//				SendChat( Player, m_GHost->m_Language->SpoofCheckByWhispering( string( UniqueName.begin( ), UniqueName.end( ) )  ) );
++//		}
++//	} else {
++		// automatically set admin/rootadmin as spoofchecked
++		if ( IsAdmin( Player->GetName() ) || IsRootAdmin( Player->GetName() ) ) {
++			Player->SetSpoofed( true );
++			Player->SetSpoofedRealm(m_CreatorServer);
+ 	}
++//	}
+ 
+ 
+ 	// show current player's .sd
+@@ -2864,7 +2876,7 @@
+ 
+ 	if( m_GHost->m_AutoLock && !m_Locked && IsOwner( joinPlayer->GetName( ) ) )
+ 	{
+-		SendAllChat( m_GHost->m_Language->GameLocked( ) );
++//		SendAllChat( m_GHost->m_Language->GameLocked( ) );
+ 		m_Locked = true;
+ 	}
+ }
+@@ -3481,21 +3493,27 @@
+ 	// if spoof checks are required and we won't automatically spoof check this player then tell them how to spoof check
+ 	// e.g. if automatic spoof checks are disabled, or if automatic spoof checks are done on admins only and this player isn't an admin
+ 
+-	if( m_GHost->m_RequireSpoofChecks && !Player->GetWhoisShouldBeSent( ) )
+-	{
+-		for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+-		{
+-			// note: the following (commented out) line of code will crash because calling GetUniqueName( ) twice will result in two different return values
+-			// and unfortunately iterators are not valid if compared against different containers
+-			// this comment shall serve as warning to not make this mistake again since it has now been made twice before in GHost++
+-			// string( (*i)->GetUniqueName( ).begin( ), (*i)->GetUniqueName( ).end( ) )
+-
+-			BYTEARRAY UniqueName = (*i)->GetUniqueName( );
+-
+-			if( (*i)->GetServer( ) == JoinedRealm )
+-				SendChat( Player, m_GHost->m_Language->SpoofCheckByWhispering( string( UniqueName.begin( ), UniqueName.end( ) )  ) );
+-		}
++//	if( m_GHost->m_RequireSpoofChecks && !Player->GetWhoisShouldBeSent( ) )
++//	{
++//		for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
++//		{
++//			// note: the following (commented out) line of code will crash because calling GetUniqueName( ) twice will result in two different return values
++//			// and unfortunately iterators are not valid if compared against different containers
++//			// this comment shall serve as warning to not make this mistake again since it has now been made twice before in GHost++
++//			// string( (*i)->GetUniqueName( ).begin( ), (*i)->GetUniqueName( ).end( ) )
++//
++//			BYTEARRAY UniqueName = (*i)->GetUniqueName( );
++//
++//			if( (*i)->GetServer( ) == JoinedRealm )
++//				SendChat( Player, m_GHost->m_Language->SpoofCheckByWhispering( string( UniqueName.begin( ), UniqueName.end( ) )  ) );
++//		}
++//	} else {
++		// automatically set admin/rootadmin as spoofchecked
++		if ( IsAdmin( Player->GetName() ) || IsRootAdmin( Player->GetName() ) ) {
++			Player->SetSpoofed( true );
++			Player->SetSpoofedRealm(m_CreatorServer);
+ 	}
++//	}
+ 
+ 	if( score < -99999.0 )
+ 		SendAllChat( m_GHost->m_Language->PlayerHasScore( joinPlayer->GetName( ), "N/A" ) );
+@@ -3567,7 +3585,7 @@
+ 
+ 	if( m_GHost->m_AutoLock && !m_Locked && IsOwner( joinPlayer->GetName( ) ) )
+ 	{
+-		SendAllChat( m_GHost->m_Language->GameLocked( ) );
++//		SendAllChat( m_GHost->m_Language->GameLocked( ) );
+ 		m_Locked = true;
+ 	}
+ 
+diff -urbd ghost/game.cpp ghost_mycode/game.cpp
+--- ghost/game.cpp	2009-11-01 14:27:35.000000000 -0700
++++ ghost_mycode/game.cpp	2009-11-09 17:50:03.000000000 -0700
+@@ -3776,10 +3776,11 @@
+ 				// if the player sent "!start force" skip the checks and start the countdown
+ 				// otherwise check that the game is ready to start
+ 
+-				if( Payload == "force" )
++				// always skip checks, they are stupid :)
++//				if( Payload == "force" )
+ 					StartCountDown( true );
+-				else
+-					StartCountDown( false );
++//				else
++//					StartCountDown( false );
+ 			}
+ 
+ 			//
+@@ -4245,10 +4246,11 @@
+ 			return HideCommand;
+ 		}
+ 
+-		if( Payload == "force" )
++		// always skip checks, they are stupid :)
++//		if( Payload == "force" )
+ 			StartCountDown( true );
+-		else
+-			StartCountDown( false );		
++//		else
++//			StartCountDown( false );		
+ 	}
+ 
+ 	//
+diff -urbd ghost/ghost.cpp ghost_mycode/ghost.cpp
+--- ghost/ghost.cpp	2009-11-01 14:27:35.000000000 -0700
++++ ghost_mycode/ghost.cpp	2009-11-09 17:00:25.000000000 -0700
+@@ -780,7 +780,7 @@
+ 	m_Exiting = false;
+ 	m_ExitingNice = false;
+ 	m_Enabled = true;
+-	m_GHostVersion = "15.0 One";
++	m_GHostVersion = "15.0 ap0c";
+ 	m_Version = "("+m_GHostVersion+")";
+ 	m_HostCounter = 1;
+ 	m_AutoHostServer = string();

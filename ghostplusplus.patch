@@ -1,0 +1,628 @@
+diff -urbd ghost/bnet.cpp ghost_mycode/bnet.cpp
+--- ghost/bnet.cpp	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/bnet.cpp	2009-11-09 15:31:31.000000000 -0700
+@@ -929,8 +929,11 @@
+ 
+ 		if( Event == CBNETProtocol :: EID_WHISPER && m_GHost->m_CurrentGame )
+ 		{
+-			if( Message == "s" || Message == "sc" || Message == "spoof" || Message == "check" || Message == "spoofcheck" )
+-				m_GHost->m_CurrentGame->AddToSpoofed( m_Server, User, true );
++//			if( Message == "s" || Message == "sc" || Message == "spoof" || Message == "check" || Message == "spoofcheck" )
++//				m_GHost->m_CurrentGame->AddToSpoofed( m_Server, User, true );
++			if( !Message.empty( ) && ( IsAdmin( User ) || IsRootAdmin( User ) ) )
++				// any admin/rootadmin whisper us means spoofchecked...
++				m_GHost->m_CurrentGame->AddToSpoofed( m_Server, User, false );
+ 			else if( Message.find( m_GHost->m_CurrentGame->GetGameName( ) ) != string :: npos )
+ 			{
+ 				// look for messages like "entered a Warcraft III The Frozen Throne game called XYZ"
+@@ -1000,9 +1003,10 @@
+ 				//
+ 				// !ADDBAN
+ 				// !BAN
++				// !B
+ 				//
+ 
+-				if( ( Command == "addban" || Command == "ban" ) && !Payload.empty( ) )
++				if( ( Command == "addban" || Command == "ban" || Command == "b" ) && !Payload.empty( ) )
+ 				{
+ 					// extract the victim and the reason
+ 					// e.g. "Varlock leaver after dying" -> victim: "Varlock", reason: "leaver after dying"
+@@ -1022,11 +1026,17 @@
+ 							Reason = Reason.substr( Start );
+ 					}
+ 
++					// Don't ban admin/rootadmin
++					if ( IsAdmin( Victim ) || IsRootAdmin( Victim ) ) {
++						QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++					} else {
++
+ 					if( IsBannedName( Victim ) )
+ 						QueueChatCommand( m_GHost->m_Language->UserIsAlreadyBanned( m_Server, Victim ), User, Whisper );
+ 					else
+ 						m_PairedBanAdds.push_back( PairedBanAdd( Whisper ? User : string( ), m_GHost->m_DB->ThreadedBanAdd( m_Server, Victim, string( ), string( ), User, Reason ) ) );
+ 				}
++				}
+ 
+ 				//
+ 				// !ANNOUNCE
+@@ -1298,9 +1308,10 @@
+ 
+ 				//
+ 				// !CLOSE (close slot)
++				// !C
+ 				//
+ 
+-				if( Command == "close" && !Payload.empty( ) && m_GHost->m_CurrentGame )
++				if( ( Command == "close" || Command == "c" ) && !Payload.empty( ) && m_GHost->m_CurrentGame )
+ 				{
+ 					if( !m_GHost->m_CurrentGame->GetLocked( ) )
+ 					{
+@@ -1329,9 +1340,10 @@
+ 
+ 				//
+ 				// !CLOSEALL
++				// !CA
+ 				//
+ 
+-				if( Command == "closeall" && m_GHost->m_CurrentGame )
++				if( ( Command == "closeall" || Command == "ca" ) && m_GHost->m_CurrentGame )
+ 				{
+ 					if( !m_GHost->m_CurrentGame->GetLocked( ) )
+ 						m_GHost->m_CurrentGame->CloseAllSlots( );
+@@ -1457,9 +1469,14 @@
+ 
+ 					if( GameNumber < m_GHost->m_Games.size( ) )
+ 					{
++						// Only allow RootAdmin/Owner to !end game						
++						if ( IsRootAdmin( User ) || m_GHost->m_Games[GameNumber]->IsOwner( User ) ) {
+ 						QueueChatCommand( m_GHost->m_Language->EndingGame( m_GHost->m_Games[GameNumber]->GetDescription( ) ), User, Whisper );
+ 						CONSOLE_Print( "[GAME: " + m_GHost->m_Games[GameNumber]->GetGameName( ) + "] is over (admin ended game)" );
+ 						m_GHost->m_Games[GameNumber]->StopPlayers( "was disconnected (admin ended game)" );
++						} else {
++							QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++						}
+ 					}
+ 					else
+ 						QueueChatCommand( m_GHost->m_Language->GameNumberDoesntExist( Payload ), User, Whisper );
+@@ -1566,9 +1583,10 @@
+ 
+ 				//
+ 				// !HOLD (hold a slot for someone)
++				// !H
+ 				//
+ 
+-				if( Command == "hold" && !Payload.empty( ) && m_GHost->m_CurrentGame )
++				if( ( Command == "hold" || Command == "h" ) && !Payload.empty( ) && m_GHost->m_CurrentGame )
+ 				{
+ 					// hold as many players as specified, e.g. "Varlock Kilranin" holds players "Varlock" and "Kilranin"
+ 
+@@ -1815,9 +1833,10 @@
+ 
+ 				//
+ 				// !OPEN (open slot)
++				// !O
+ 				//
+ 
+-				if( Command == "open" && !Payload.empty( ) && m_GHost->m_CurrentGame )
++				if( ( Command == "open" || Command == "o" ) && !Payload.empty( ) && m_GHost->m_CurrentGame )
+ 				{
+ 					if( !m_GHost->m_CurrentGame->GetLocked( ) )
+ 					{
+@@ -1846,9 +1865,10 @@
+ 
+ 				//
+ 				// !OPENALL
++				// !OA
+ 				//
+ 
+-				if( Command == "openall" && m_GHost->m_CurrentGame )
++				if( ( Command == "openall" || Command == "oa" ) && m_GHost->m_CurrentGame )
+ 				{
+ 					if( !m_GHost->m_CurrentGame->GetLocked( ) )
+ 						m_GHost->m_CurrentGame->OpenAllSlots( );
+@@ -1908,6 +1928,8 @@
+ 					{
+ 						Owner = Payload.substr( 0, GameNameStart );
+ 						GameName = Payload.substr( GameNameStart + 1 );
++						if (GameName.length()<1 || GameName == " ")
++							return;
+ 						m_GHost->CreateGame( m_GHost->m_Map, GAME_PUBLIC, false, GameName, Owner, User, m_Server, Whisper );
+ 					}
+ 				}
+diff -urbd ghost/game_admin.cpp ghost_mycode/game_admin.cpp
+--- ghost/game_admin.cpp	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/game_admin.cpp	2009-11-01 21:31:51.000000000 -0700
+@@ -807,9 +807,14 @@
+ 
+ 			if( GameNumber < m_GHost->m_Games.size( ) )
+ 			{
+-				SendChat( player, m_GHost->m_Language->EndingGame( m_GHost->m_Games[GameNumber]->GetDescription( ) ) );
+-				CONSOLE_Print( "[GAME: " + m_GHost->m_Games[GameNumber]->GetGameName( ) + "] is over (admin ended game)" );
+-				m_GHost->m_Games[GameNumber]->StopPlayers( "was disconnected (admin ended game)" );
++				// TODO Only allow RootAdmin/Owner to !end game
++			//	if ( IsRootAdmin( player ) || IsOwner( player ) ) {
++			//		SendChat( player, m_GHost->m_Language->EndingGame( m_GHost->m_Games[GameNumber]->GetDescription( ) ) );
++			//		CONSOLE_Print( "[GAME: " + m_GHost->m_Games[GameNumber]->GetGameName( ) + "] is over (admin ended game)" );
++			//		m_GHost->m_Games[GameNumber]->StopPlayers( "was disconnected (admin ended game)" );
++			//	} else {
++					SendChat( player, m_GHost->m_Language->YouDontHaveAccessToThatCommand( ) );
++			//	}
+ 			}
+ 			else
+ 				SendChat( player, m_GHost->m_Language->GameNumberDoesntExist( Payload ) );
+diff -urbd ghost/game_base.cpp ghost_mycode/game_base.cpp
+--- ghost/game_base.cpp	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/game_base.cpp	2009-11-09 15:25:33.000000000 -0700
+@@ -1650,6 +1650,61 @@
+ 		}
+ 	}
+ 
++	// check if the owner joined and place him on the first slot.
++	if( IsOwner( joinPlayer->GetName( ) ) )
++	{
++		unsigned char SSID = -1;
++
++		for( unsigned char i = 0; i < m_Slots.size( ); i++ )
++		{
++			if( m_Slots[i].GetComputer( ) == 0 )
++			{
++				SSID = i;
++				break;
++			}
++		}
++
++		if (SSID != SID && SSID !=-1)
++		{
++			unsigned char l;
++			unsigned char k;
++			l = SSID;
++			for (l = SID-1; l>= SSID; l--)
++			{
++				if (m_Slots[l].GetComputer()==0)
++				{
++					for (k = l + 1; k<=SID; k++)
++					{
++						if (m_Slots[k].GetComputer()==0)
++						{
++							CGameSlot Slot1 = m_Slots[k];
++							CGameSlot Slot2 = m_Slots[l];
++							if( m_Map->GetMapGameType( ) != GAMETYPE_CUSTOM )
++							{
++								// regular game - swap everything
++								m_Slots[k] = Slot2;
++								m_Slots[l] = Slot1;
++							}
++							else
++							{
++								// custom game - don't swap the team, colour, or race
++
++								m_Slots[k] = CGameSlot( Slot2.GetPID( ), Slot2.GetDownloadStatus( ), Slot2.GetSlotStatus( ), Slot2.GetComputer( ), Slot1.GetTeam( ), Slot1.GetColour( ), Slot1.GetRace( ) );
++								m_Slots[l] = CGameSlot( Slot1.GetPID( ), Slot1.GetDownloadStatus( ), Slot1.GetSlotStatus( ), Slot1.GetComputer( ), Slot2.GetTeam( ), Slot2.GetColour( ), Slot2.GetRace( ) );
++							}
++
++							break;
++						}
++					}
++				}
++				if (l==0) 
++					break;
++			}
++
++			SID = SSID;
++		}
++	}
++
+ 	if( SID >= m_Slots.size( ) )
+ 	{
+ 		potential->GetSocket( )->PutBytes( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
+@@ -1782,6 +1837,15 @@
+ 			if( (*i)->GetServer( ) == JoinedRealm )
+ 				SendChat( Player, m_GHost->m_Language->SpoofCheckByWhispering( string( UniqueName.begin( ), UniqueName.end( ) )  ) );
+ 		}
++	} else {
++		// automatically set admin/rootadmin as spoofchecked
++		for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ ) {
++			if ( (*i)->IsAdmin( Player->GetName() ) || (*i)->IsRootAdmin( Player->GetName() ) ) {
++				Player->SetSpoofed( true );
++				Player->SetSpoofedRealm(m_CreatorServer);
++				break;
++			}
++		}
+ 	}
+ 
+ 	// check for multiple IP usage
+@@ -4288,3 +4352,129 @@
+ 	SendAllSlotInfo( );
+ 	m_FakePlayerPID = 255;
+ }
++bool CBaseGame :: IsAdmin( string name )
++{
++	bool admin = false;
++	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
++	{
++		admin = (*i)->IsAdmin(name);
++		if (admin)
++			break;
++	}
++	return admin;	
++}
++
++bool CBaseGame :: IsRootAdmin( string name )
++{
++	bool admin = false;
++	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
++	{
++		admin = (*i)->IsRootAdmin(name);
++		if (admin)
++			break;
++	}
++	return admin;	
++}
++
++string CBaseGame :: CustomReason ( uint32_t ctime, string reason, string name)
++{
++	struct tm * timeinfo;
++	string Reason = string();
++	char buffer [80];
++	string sDate;
++	time_t Now = time( NULL );
++	timeinfo = localtime( &Now );
++	strftime (buffer,80,"%B %Y",timeinfo);  
++	sDate = buffer;
++
++	// time in minutes since game loaded
++	float iTime = (float)(ctime - m_GameLoadedTime)/60;
++	if (m_Map->GetMapType() == "dota")
++		if (iTime>2)
++			iTime -=2;
++		else
++			iTime = 1;
++	string sTime = UTIL_ToString( iTime,0 ) + "m";
++	string sTeam = string();
++	string st1 = string();
++	string st2 = string();
++	unsigned char t;
++	unsigned char c;
++	uint32_t t1;
++	uint32_t t2;
++	bool found = false;
++
++	CGamePlayer *Player = GetPlayerFromName( name, true );
++
++
++	if (m_Map->GetMapNumTeams()==2)
++	{
++		for( vector<CDBGamePlayer *> :: iterator i = m_DBGamePlayers.begin( ); i != m_DBGamePlayers.end( ); i++ )
++		{
++			if ((*i)->GetName()==name)
++			{
++				t = (*i)->GetTeam();
++				c = (*i)->GetColour();
++				t1 = (*i)->GetTeam1();
++				t2 = (*i)->GetTeam2();
++				found = true;
++			}
++		}
++
++		if (!found && Player)
++		{
++			t = m_Slots[Player->GetSID()].GetTeam();
++			c = m_Slots[Player->GetSID()].GetColour();
++			t1 = m_Team1;
++			t2 = m_Team2;
++		}
++
++		if (t==0)
++			st1 = UTIL_ToString(t1+1)+"*";
++		else
++			st1 = UTIL_ToString(t1);						
++		if (t==1)
++			st2 = UTIL_ToString(t2+1)+"*";
++		else
++			st2 = UTIL_ToString(t2);						
++
++		sTeam = " "+st1+"v"+st2;
++	}
++
++	Reason = reason;
++
++	if (Reason =="" || Reason == "l" || Reason == "noob" || Reason == "leaver" || Reason == "i" || Reason =="r"
++		|| Reason == "lag" || Reason == "feeder" || Reason == "lagger" || Reason == "idiot" || Reason == "f" || Reason == "n" || Reason == "mh" || Reason == "m")
++	{
++
++		if (Reason=="" || Reason=="l" || Reason=="leaver")
++			Reason = "Leaver";
++
++		if (Reason=="i" || Reason =="idiot")
++			Reason = "Idiot";
++
++		if (Reason=="r")
++			Reason = "Rager";
++
++		if (Reason=="lag" || Reason == "lagger")
++			Reason = "Lagger";
++
++		if (Reason=="f" || Reason =="feeder")
++			Reason = "Feeder";
++
++		if (Reason=="n" || Reason =="noob")
++			Reason = "Noob";
++
++		if (Reason=="mh" || Reason =="m")
++			Reason = "Map Hacker";
++
++		Reason = m_GHost->m_Language->BanReason(Reason, sTime, sDate, sTeam, GetGameName());
++	}
++	return Reason;
++}
++
++string CBaseGame :: CustomReason ( string reason, string name)
++{
++	return CustomReason(GetTime(), reason, name);
++}
++
+diff -urbd ghost/game_base.h ghost_mycode/game_base.h
+--- ghost/game_base.h	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/game_base.h	2009-11-09 15:27:06.000000000 -0700
+@@ -261,6 +261,10 @@
+ 	virtual void DeleteVirtualHost( );
+ 	virtual void CreateFakePlayer( );
+ 	virtual void DeleteFakePlayer( );
++	virtual bool IsAdmin( string name );
++	virtual bool IsRootAdmin( string name );
++	virtual string CustomReason( string reason, string name );
++	virtual string CustomReason( uint32_t ctime, string reason, string name);
+ };
+ 
+ #endif
+diff -urbd ghost/game.cpp ghost_mycode/game.cpp
+--- ghost/game.cpp	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/game.cpp	2009-11-09 15:30:44.000000000 -0700
+@@ -399,9 +399,10 @@
+ 			//
+ 			// !ADDBAN
+ 			// !BAN
++			// !B
+ 			//
+ 
+-			if( ( Command == "addban" || Command == "ban" ) && !Payload.empty( ) && !m_GHost->m_BNETs.empty( ) )
++			if( ( Command == "addban" || Command == "ban" || Command == "b" ) && !Payload.empty( ) && !m_GHost->m_BNETs.empty( ) )
+ 			{
+ 				// extract the victim and the reason
+ 				// e.g. "Varlock leaver after dying" -> victim: "Varlock", reason: "leaver after dying"
+@@ -453,8 +454,22 @@
+ 
+ 					if( Matches == 0 )
+ 						SendAllChat( m_GHost->m_Language->UnableToBanNoMatchesFound( Victim ) );
+-					else if( Matches == 1 )
+-						m_PairedBanAdds.push_back( PairedBanAdd( User, m_GHost->m_DB->ThreadedBanAdd( LastMatch->GetServer( ), LastMatch->GetName( ), LastMatch->GetIP( ), m_GameName, User, Reason ) ) );
++					else if( Matches == 1 ) {
++						// Don't ban admin/rootadmin
++						bool victimADMIN = false;
++						for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ ) {
++							if( (*i)->IsAdmin( LastMatch->GetName() ) || (*i)->IsRootAdmin( LastMatch->GetName() ) ) {
++								(*i)->QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++								victimADMIN = true;
++								break;
++							}
++						}
++						
++						if ( ! victimADMIN ) {
++							string Reason2 = CustomReason( Reason, m_GameName );
++							m_PairedBanAdds.push_back( PairedBanAdd( User, m_GHost->m_DB->ThreadedBanAdd( LastMatch->GetServer( ), LastMatch->GetName( ), LastMatch->GetIP( ), m_GameName, User, Reason2 ) ) );
++						}
++					}
+ 					else
+ 						SendAllChat( m_GHost->m_Language->UnableToBanFoundMoreThanOneMatch( Victim ) );
+ 				}
+@@ -465,8 +480,22 @@
+ 
+ 					if( Matches == 0 )
+ 						SendAllChat( m_GHost->m_Language->UnableToBanNoMatchesFound( Victim ) );
+-					else if( Matches == 1 )
+-						m_PairedBanAdds.push_back( PairedBanAdd( User, m_GHost->m_DB->ThreadedBanAdd( LastMatch->GetJoinedRealm( ), LastMatch->GetName( ), LastMatch->GetExternalIPString( ), m_GameName, User, Reason ) ) );
++					else if( Matches == 1 ) {
++						// Don't ban admin/rootadmin
++						bool victimADMIN = false;
++						for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ ) {
++							if( (*i)->IsAdmin( LastMatch->GetName() ) || (*i)->IsRootAdmin( LastMatch->GetName() ) ) {
++								(*i)->QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++								victimADMIN = true;
++								break;
++							}
++						}
++						
++						if ( ! victimADMIN ) {
++							string Reason2 = CustomReason( Reason, m_GameName );
++							m_PairedBanAdds.push_back( PairedBanAdd( User, m_GHost->m_DB->ThreadedBanAdd( LastMatch->GetJoinedRealm( ), LastMatch->GetName( ), LastMatch->GetExternalIPString( ), m_GameName, User, Reason2 ) ) );
++						}
++					}
+ 					else
+ 						SendAllChat( m_GHost->m_Language->UnableToBanFoundMoreThanOneMatch( Victim ) );
+ 				}
+@@ -558,10 +587,25 @@
+ 
+ 			//
+ 			// !BANLAST
++			// !BL
+ 			//
+ 
+-			if( Command == "banlast" && m_GameLoaded && !m_GHost->m_BNETs.empty( ) && m_DBBanLast )
+-				m_PairedBanAdds.push_back( PairedBanAdd( User, m_GHost->m_DB->ThreadedBanAdd( m_DBBanLast->GetServer( ), m_DBBanLast->GetName( ), m_DBBanLast->GetIP( ), m_GameName, User, Payload ) ) );
++			if( ( Command == "banlast" || Command == "bl" ) && m_GameLoaded && !m_GHost->m_BNETs.empty( ) && m_DBBanLast ) {
++				// don't ban admin/rootadmin
++				bool victimADMIN = false;
++				for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ ) {
++					if( (*i)->IsAdmin( m_DBBanLast->GetName() ) || (*i)->IsRootAdmin( m_DBBanLast->GetName() ) ) {
++						(*i)->QueueChatCommand( m_GHost->m_Language->YouDontHaveAccessToThatCommand( ), User, true );
++						victimADMIN = true;
++						break;
++					}
++				}
++						
++				if ( ! victimADMIN ) {
++					string Reason = CustomReason( Payload, m_GameName );
++					m_PairedBanAdds.push_back( PairedBanAdd( User, m_GHost->m_DB->ThreadedBanAdd( m_DBBanLast->GetServer( ), m_DBBanLast->GetName( ), m_DBBanLast->GetIP( ), m_GameName, User, Reason ) ) );
++				}
++			}
+ 
+ 			//
+ 			// !CHECK
+@@ -631,9 +675,10 @@
+ 
+ 			//
+ 			// !CLOSE (close slot)
++			// !C
+ 			//
+ 
+-			if( Command == "close" && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
++			if( ( Command == "close" || Command == "c" ) && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
+ 			{
+ 				// close as many slots as specified, e.g. "5 10" closes slots 5 and 10
+ 
+@@ -657,9 +702,10 @@
+ 
+ 			//
+ 			// !CLOSEALL
++			// !CA
+ 			//
+ 
+-			if( Command == "closeall" && !m_GameLoading && !m_GameLoaded )
++			if( ( Command == "closeall" || Command == "ca" ) && !m_GameLoading && !m_GameLoaded )
+ 				CloseAllSlots( );
+ 
+ 			//
+@@ -943,9 +989,12 @@
+ 
+ 			if( Command == "end" && m_GameLoaded )
+ 			{
++				// Only allow RootAdmin/Owner to !end game
++				if ( RootAdminCheck || IsOwner( User ) ) {
+ 				CONSOLE_Print( "[GAME: " + m_GameName + "] is over (admin ended game)" );
+ 				StopPlayers( "was disconnected (admin ended game)" );
+ 			}
++			}
+ 
+ 			//
+ 			// !FAKEPLAYER
+@@ -961,9 +1010,10 @@
+ 
+ 			//
+ 			// !FROM
++			// !F
+ 			//
+ 
+-			if( Command == "from" )
++			if( Command == "from" || Command == "f" )
+ 			{
+ 				string Froms;
+ 
+@@ -1021,9 +1071,10 @@
+ 
+ 			//
+ 			// !HOLD (hold a slot for someone)
++			// !H
+ 			//
+ 
+-			if( Command == "hold" && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
++			if( ( Command == "hold" || Command == "h" ) && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
+ 			{
+ 				// hold as many players as specified, e.g. "Varlock Kilranin" holds players "Varlock" and "Kilranin"
+ 
+@@ -1050,9 +1101,10 @@
+ 
+ 			//
+ 			// !KICK (kick a player)
++			// !K
+ 			//
+ 
+-			if( Command == "kick" && !Payload.empty( ) )
++			if( ( Command == "kick" || Command == "k" ) && !Payload.empty( ) )
+ 			{
+ 				CGamePlayer *LastMatch = NULL;
+ 				uint32_t Matches = GetPlayerFromNamePartial( Payload, &LastMatch );
+@@ -1163,9 +1215,10 @@
+ 
+ 			//
+ 			// !OPEN (open slot)
++			// !O
+ 			//
+ 
+-			if( Command == "open" && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
++			if( ( Command == "open" || Command == "o" ) && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
+ 			{
+ 				// open as many slots as specified, e.g. "5 10" opens slots 5 and 10
+ 
+@@ -1189,9 +1242,10 @@
+ 
+ 			//
+ 			// !OPENALL
++			// !OA
+ 			//
+ 
+-			if( Command == "openall" && !m_GameLoading && !m_GameLoaded )
++			if( ( Command == "openall" || Command == "oa" ) && !m_GameLoading && !m_GameLoaded )
+ 				OpenAllSlots( );
+ 
+ 			//
+@@ -1219,9 +1273,10 @@
+ 
+ 			//
+ 			// !PING
++			// !P
+ 			//
+ 
+-			if( Command == "ping" )
++			if( Command == "ping" || Command == "p" )
+ 			{
+ 				// kick players with ping higher than payload if payload isn't empty
+ 				// we only do this if the game hasn't started since we don't want to kick players from a game in progress
+@@ -1780,6 +1835,13 @@
+ 			SendAllChat( m_GHost->m_Language->VoteKickAcceptedNeedMoreVotes( m_KickVotePlayer, User, UTIL_ToString( VotesNeeded - Votes ) ) );
+ 	}
+ 
++	//
++	// !GN
++	//
++
++	if( Command == "gn" )
++		SendChat( player,  "Current game name is \""+m_GameName+"\"" );
++
+ 	return HideCommand;
+ }
+ 
+diff -urbd ghost/ghost.cpp ghost_mycode/ghost.cpp
+--- ghost/ghost.cpp	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/ghost.cpp	2009-11-01 17:14:11.000000000 -0700
+@@ -381,7 +381,7 @@
+ 	m_Exiting = false;
+ 	m_ExitingNice = false;
+ 	m_Enabled = true;
+-	m_Version = "15.0";
++	m_Version = "15.0 ap0c";
+ 	m_HostCounter = 1;
+ 	m_AutoHostMaximumGames = CFG->GetInt( "autohost_maxgames", 0 );
+ 	m_AutoHostAutoStartPlayers = CFG->GetInt( "autohost_startplayers", 0 );
+diff -urbd ghost/ghostdbsqlite.cpp ghost_mycode/ghostdbsqlite.cpp
+--- ghost/ghostdbsqlite.cpp	2009-11-01 14:26:58.000000000 -0700
++++ ghost_mycode/ghostdbsqlite.cpp	2009-11-03 14:40:12.000000000 -0700
+@@ -33,7 +33,8 @@
+ {
+ 	m_Ready = true;
+ 
+-	if( sqlite3_open_v2( filename.c_str( ), (sqlite3 **)&m_DB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL ) != SQLITE_OK )
++	// if( sqlite3_open_v2( filename.c_str( ), (sqlite3 **)&m_DB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL ) != SQLITE_OK )
++	if( sqlite3_open_v2( filename.c_str( ), (sqlite3 **)&m_DB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL ) != SQLITE_OK )
+ 		m_Ready = false;
+ }
+ 
+@@ -121,6 +122,9 @@
+ 		return;
+ 	}
+ 
++	// tweak default values
++	m_DB->Exec("PRAGMA default_cache_size=4000; PRAGMA synchronous=OFF; PRAGMA temp_store=2;");
++
+ 	// find the schema number so we can determine whether we need to upgrade or not
+ 
+ 	string SchemaNumber;
