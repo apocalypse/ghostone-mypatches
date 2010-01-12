@@ -3,4 +3,4 @@
 - add IRC chat capability
 - fix !unhost so all rootadmins can do it regardless of game owner?
 - add clan shamans as rootadmin?
-- 
+- make sure default !acc privilege for new users is correct
