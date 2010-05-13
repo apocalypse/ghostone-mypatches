@@ -284,3 +284,31 @@ diff -urbd ghost/ghost.cpp ghost_mycode/ghost.cpp
  	m_Version = "("+m_GHostVersion+")";
  	m_HostCounter = 1;
  	m_AutoHostServer = string();
+
+
+
+# AHHHHHHHHHHH too lazy to fix this patch
+# in game.cpp
+
+# for !F, starting in orig line 2714
+if ( (*i)->GetJoinedRealm( ).substr( 0, 3 ) == "use" ) {
+	Froms2 += "@USEast";
+	Froms += "@USEast";
+} else if ( (*i)->GetJoinedRealm( ).substr( 0, 3 ) == "usw" ) {
+	Froms2 += "@USWest";
+	Froms += "@USWest";
+}
+
+# for !P, starting in orig line 3178
+if ( (*i)->GetJoinedRealm( ).substr( 0, 3 ) == "use" ) {
+	Pings += "@USEast";
+} else if ( (*i)->GetJoinedRealm( ).substr( 0, 3 ) == "usw" ) {
+	Pings += "@USWest";
+}
+
+
+# in game_base.cpp
+# replace this line
+CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + Player->GetName( ) + "] joined the game" );
+# to
+CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + Player->GetName( ) + "@" + Player->GetJoinedRealm( ) + "] joined the game" );
