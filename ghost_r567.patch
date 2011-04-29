@@ -1,0 +1,256 @@
+Index: default.cfg
+===================================================================
+--- default.cfg	(revision 567)
++++ default.cfg	(working copy)
+@@ -354,6 +354,22 @@
+ 
+ db_mysql_botid = 1
+ 
++####################################
++# UDP COMMAND SOCKET CONFIGURATION #
++####################################
++
++### Enable the command socket or not?
++udp_cmdsocket = 0
++
++### The local ip and port to bind on
++### BE CAREFUL if you use a public ip!
++### Anyone can send commands and screw up your bot if you do that!
++udp_cmdbindip = 127.0.0.1
++udp_cmdbindport = 6969
++
++### The default realm to send commands to ( the server alias )
++udp_cmdrealm = USEast
++
+ ############################
+ # BATTLE.NET CONFIGURATION #
+ ############################
+Index: ghost/Makefile
+===================================================================
+--- ghost/Makefile	(revision 567)
++++ ghost/Makefile	(working copy)
+@@ -2,9 +2,9 @@
+ SYSTEM = $(shell uname)
+ C++ = g++
+ CC = gcc
+-DFLAGS = -DGHOST_MYSQL
++DFLAGS =
+ OFLAGS = -O3
+-LFLAGS = -L. -L../bncsutil/src/bncsutil/ -L../StormLib/stormlib/ -lbncsutil -lpthread -ldl -lz -lStorm -lmysqlclient_r -lboost_date_time-mt -lboost_thread-mt -lboost_system-mt -lboost_filesystem-mt
++LFLAGS = -L. -L../bncsutil/src/bncsutil/ -L../StormLib/stormlib/ -lbncsutil -lpthread -ldl -lz -lStorm -lboost_date_time-mt -lboost_thread-mt -lboost_system-mt -lboost_filesystem-mt
+ CFLAGS =
+ 
+ ifeq ($(SYSTEM),Darwin)
+Index: ghost/game_base.cpp
+===================================================================
+--- ghost/game_base.cpp	(revision 567)
++++ ghost/game_base.cpp	(working copy)
+@@ -1762,7 +1762,7 @@
+ 
+         for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
+ 	{
+-		if( (*i)->IsAdmin( joinPlayer->GetName( ) ) || (*i)->IsRootAdmin( joinPlayer->GetName( ) ) )
++		if( (*i)->IsAdmin( joinPlayer->GetName( ) ) || (*i)->IsRootAdmin( joinPlayer->GetName( ) ) || IsOwner( joinPlayer->GetName( ) ) )
+ 		{
+ 			AnyAdminCheck = true;
+ 			break;
+@@ -2134,7 +2134,7 @@
+ 
+         for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
+ 	{
+-		if( (*i)->IsAdmin( joinPlayer->GetName( ) ) || (*i)->IsRootAdmin( joinPlayer->GetName( ) ) )
++		if( (*i)->IsAdmin( joinPlayer->GetName( ) ) || (*i)->IsRootAdmin( joinPlayer->GetName( ) ) || IsOwner( joinPlayer->GetName( ) ) )
+ 		{
+ 			AnyAdminCheck = true;
+ 			break;
+Index: ghost/ghostdbsqlite.cpp
+===================================================================
+--- ghost/ghostdbsqlite.cpp	(revision 567)
++++ ghost/ghostdbsqlite.cpp	(working copy)
+@@ -32,8 +32,9 @@
+ CSQLITE3 :: CSQLITE3( string filename )
+ {
+ 	m_Ready = true;
+-
+-	if( sqlite3_open_v2( filename.c_str( ), (sqlite3 **)&m_DB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL ) != SQLITE_OK )
++
++	// Use OPEN_FULLMUTEX to make sure only 1 thread can access the DB at the same time
++	if( sqlite3_open_v2( filename.c_str( ), (sqlite3 **)&m_DB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL ) != SQLITE_OK )
+ 		m_Ready = false;
+ }
+ 
+@@ -119,7 +120,10 @@
+ 		m_HasError = true;
+ 		m_Error = "error opening database";
+ 		return;
+-	}
++	}
++
++	// tweak default values
++	m_DB->Exec("PRAGMA default_cache_size=4000; PRAGMA synchronous=OFF; PRAGMA temp_store=2;");
+ 
+ 	// find the schema number so we can determine whether we need to upgrade or not
+ 
+Index: ghost/ghost.cpp
+===================================================================
+--- ghost/ghost.cpp	(revision 567)
++++ ghost/ghost.cpp	(working copy)
+@@ -38,7 +38,8 @@
+ #include "gpsprotocol.h"
+ #include "game_base.h"
+ #include "game.h"
+-#include "game_admin.h"
++#include "game_admin.h"
++#include "bnetprotocol.h"
+ 
+ #include <signal.h>
+ #include <stdlib.h>
+@@ -486,7 +487,7 @@
+ 	m_Exiting = false;
+ 	m_ExitingNice = false;
+ 	m_Enabled = true;
+-	m_Version = "17.1";
++	m_Version = "17.1 ap0c";
+ 	m_HostCounter = 1;
+ 	m_AutoHostMaximumGames = CFG->GetInt( "autohost_maxgames", 0 );
+ 	m_AutoHostAutoStartPlayers = CFG->GetInt( "autohost_startplayers", 0 );
+@@ -515,7 +516,19 @@
+ 	m_AdminGameMap = CFG->GetString( "admingame_map", string( ) );
+ 	m_LANWar3Version = CFG->GetInt( "lan_war3version", 26 );
+ 	m_ReplayWar3Version = CFG->GetInt( "replay_war3version", 26 );
+-	m_ReplayBuildNumber = CFG->GetInt( "replay_buildnumber", 6059 );
++	m_ReplayBuildNumber = CFG->GetInt( "replay_buildnumber", 6059 );
++
++	// UDPCommandSocket patch
++	m_UDPCommandSocketEnabled = CFG->GetInt( "udp_cmdsocket", 0 ) == 0 ? false : true;
++	if ( m_UDPCommandSocketEnabled ) {
++		m_UDPCommandRealm = CFG->GetString( "udp_cmdrealm", string( ) );
++		m_UDPCommandSocket = new CUDPServer();
++		string bindip = CFG->GetString( "udp_cmdbindip", "localhost" );
++		int bindport = CFG->GetInt( "udp_cmdbindport", 6969 );
++		m_UDPCommandSocket->Bind( bindip, bindport );
++		CONSOLE_Print( "[UDPCMDSOCK] Listening on " + bindip + ":" + UTIL_ToString( bindport ) );
++	}
++
+ 	SetConfigs( CFG );
+ 
+ 	// load the battle.net connections
+@@ -691,7 +704,12 @@
+ }
+ 
+ CGHost :: ~CGHost( )
+-{
++{
++	// UDPCommandSocket patch
++	if ( m_UDPCommandSocketEnabled ) {
++		delete m_UDPCommandSocket;
++	}
++
+ 	delete m_UDPSocket;
+ 	delete m_ReconnectSocket;
+ 
+@@ -881,6 +899,14 @@
+ 	{
+ 		(*i)->SetFD( &fd, &send_fd, &nfds );
+                 ++NumFDs;
++	}
++
++	// 6. UDPCommandSocket socket(s)
++	if ( m_UDPCommandSocketEnabled ) {
++		m_UDPCommandSocket->SetFD( &fd,  &send_fd, &nfds);
++	
++		// SetFD of the UDPServer does not return the number of sockets belonging to it as it's obviously one
++		++NumFDs;
+ 	}
+ 
+ 	// before we call select we need to determine how long to block for
+@@ -988,6 +1014,58 @@
+ 	{
+ 		if( (*i)->Update( &fd, &send_fd ) )
+ 			BNETExit = true;
++	}
++
++	// process UDPCommandSocket clients
++	if ( m_UDPCommandSocketEnabled ) {
++		struct sockaddr_in recvAddr;
++		string udpcommand;
++		m_UDPCommandSocket->RecvFrom( &fd, &recvAddr, &udpcommand);
++		if ( udpcommand.size() ) {
++			// default server to relay the message to
++			string udptarget = m_UDPCommandRealm;
++			bool relayed = false;
++			string recvFrom = inet_ntoa( recvAddr.sin_addr );
++
++			// has the user specified a specific target the command should be sent to?
++			// looks for "<alias>" at the beginning of the received command,
++			// sets the target accordingly and strips it from the command
++			int pos;
++			if ( udpcommand.find("<") == 0 && (pos=udpcommand.find(">")) != string::npos ) {
++				udptarget = udpcommand.substr(1, pos - 1);
++				udpcommand.erase(0, pos + 1);
++
++				// remove any whitespace
++				pos = udpcommand.find_first_not_of(" ");
++				if ( pos != string::npos ) {
++					udpcommand.erase(0, pos);
++				}
++			}
++
++			// we expect commands not to start with the command trigger because this is a commandsocket,
++			// we only except commands and therefore know we received one and not some chatting
++			// this way the user sending the command does not have to have knowledge of the commandtrigger
++			// set in GHost's config file
++			udpcommand = m_CommandTrigger + udpcommand;
++
++			// loop through all connections to find the server the command should be issued on
++			for( vector<CBNET *> :: iterator i = m_BNETs.begin( ); i != m_BNETs.end( ); ++i ) {
++				// is this the right one or should we just send it to the first in list?
++				if ( udptarget.empty() || udptarget == (*i)->GetServerAlias( ) ) {
++					CONSOLE_Print("[UDPCMDSOCK] Relaying src[" + recvFrom + "] cmd [" + udpcommand + "] to server [" + udptarget + "]");
++
++					// spoof a whisper from the rootadmin belonging to this connection
++					CIncomingChatEvent *chatCommand = new CIncomingChatEvent( CBNETProtocol::EID_WHISPER, 0, (*i)->GetRootAdmin( ), udpcommand );
++					(*i)->ProcessChatEvent( chatCommand );
++					relayed = true;
++					break;
++				}
++			}
++
++			if ( ! relayed ) {
++				CONSOLE_Print("[UDPCMDSOCK] Could not relay src[" + recvFrom + "] cmd [" + udpcommand + "] to server [" + udptarget + "]: server unknown");
++			}
++		}
+ 	}
+ 
+ 	// update GProxy++ reliable reconnect sockets
+Index: ghost/ghost.h
+===================================================================
+--- ghost/ghost.h	(revision 567)
++++ ghost/ghost.h	(working copy)
+@@ -41,7 +41,10 @@
+ class CLanguage;
+ class CMap;
+ class CSaveGame;
+-class CConfig;
++class CConfig;
++
++// UDPCommandSocket patch
++class CUDPServer;
+ 
+ class CGHost
+ {
+@@ -132,7 +135,13 @@
+ 	uint32_t m_ReplayWar3Version;			// config value: replay warcraft 3 version (for saving replays)
+ 	uint32_t m_ReplayBuildNumber;			// config value: replay build number (for saving replays)
+ 	bool m_TCPNoDelay;						// config value: use Nagle's algorithm or not
+-	uint32_t m_MatchMakingMethod;			// config value: the matchmaking method
++	uint32_t m_MatchMakingMethod;			// config value: the matchmaking method
++
++	// UDPCommandSocket patch
++	CUDPServer *m_UDPCommandSocket;		// a UDP socket for receiving commands
++	bool m_UDPCommandSocketEnabled;		// enable the UDP command socket ( udp_cmdsocket in cfg )
++						// also uses udp_cmdbindip and udp_cmdbindport in cfg
++	string m_UDPCommandRealm; 		// the realm to send udp received commands to ( udp_cmdrealm in cfg )
+ 
+ 	CGHost( CConfig *CFG );
+ 	~CGHost( );
