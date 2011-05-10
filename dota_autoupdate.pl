@@ -10,7 +10,7 @@ use File::Spec;
 
 # ghost@wc3:~$ crontab -l
 # # m h  dom mon dow   command
-# 0 * * * * /home/ghost/dota_autoupdate.pl
+# 0 * * * * /home/ghost/dota_autoupdate.pl > /dev/null 2>&1
 
 # Set some config variables
 my $dota_mainpage = 'http://www.getdota.com/map_archive/map/last/lang/en';
@@ -195,7 +195,8 @@ sub update_ghost {
 		print "Telling GHostOne to send the announcement!\n";
 	}
 
-	$sock->send( "say New version of DotA loaded, time to own some n00bs! ( $data )" ) or die "Send error: $!";
+	# use rnrbots to send a clan message to everyone!
+	$sock->send( "say /f m .cm New version of DotA loaded, time to own some n00bs! ( $data )" ) or die "Send error: $!";
 
 	return;
 }
